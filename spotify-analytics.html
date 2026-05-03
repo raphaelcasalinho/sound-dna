@@ -693,15 +693,6 @@ async function loadDashboard(period = 'short_term') {
   }
 }
 
-
-
-  allData = { profile, topArtists, topTracks, recentTracks, period };
-
-  renderDashboard(allData);
-  showDashboard();
-  analyzeProfile(allData);
-}
-
 async function changePeriod(period, btn) {
   document.querySelectorAll('.period-btn').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
