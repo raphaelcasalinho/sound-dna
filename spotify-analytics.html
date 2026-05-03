@@ -667,14 +667,33 @@ async function init() {
 async function loadDashboard(period = 'short_term') {
   showLoading('Buscando seus artistas favoritos...');
 
-  const [profile, topArtists, topTracks, recentTracks] = await Promise.all([
-    spotifyFetch('https://api.spotify.com/v1/me'),
-    spotifyFetch(`https://api.spotify.com/v1/me/top/artists?limit=20&time_range=${period}`),
-    spotifyFetch(`https://api.spotify.com/v1/me/top/tracks?limit=20&time_range=${period}`),
-    spotifyFetch('https://api.spotify.com/v1/me/player/recently-played?limit=50'),
-  ]);
+  try {
+    const [profile, topArtists, topTracks, recentTracks] = await Promise.all([
+      spotifyFetch('https://api.spotify.com/v1/me'),
+      spotifyFetch(`https://api.spotify.com/v1/me/top/artists?limit=20&time_range=${period}`),
+      spotifyFetch(`https://api.spotify.com/v1/me/top/tracks?limit=20&time_range=${period}`),
+      spotifyFetch('https://api.spotify.com/v1/me/player/recently-played?limit=50'),
+    ]);
 
-  if (!profile) return;
+    if (!profile) { showAuthScreen(); showError('Sessão expirada. Conecte novamente.'); return; }
+
+    // Normalize genres — some artists may come without genres array
+    if (topArtists?.items) {
+      topArtists.items = topArtists.items.map(a => ({ ...a, genres: a.genres || [] }));
+    }
+
+    allData = { profile, topArtists, topTracks, recentTracks, period };
+    renderDashboard(allData);
+    showDashboard();
+    analyzeProfile(allData);
+  } catch(e) {
+    console.error(e);
+    showAuthScreen();
+    showError('Erro ao carregar dados: ' + e.message);
+  }
+}
+
+
 
   allData = { profile, topArtists, topTracks, recentTracks, period };
 
@@ -707,7 +726,7 @@ function renderDashboard({ profile, topArtists, topTracks, recentTracks }) {
 }
 
 function renderStats(artists, tracks, recent) {
-  const genres = new Set(artists?.items?.flatMap(a => a.genres) || []);
+  const genres = new Set(artists?.items?.flatMap(a => a.genres||[]) || []);
   const avgPop = artists?.items?.length
     ? Math.round(artists.items.reduce((s,a) => s+a.popularity, 0) / artists.items.length)
     : 0;
@@ -737,7 +756,7 @@ function renderArtists(topArtists) {
       <img class="artist-img" src="${a.images?.[2]?.url || a.images?.[0]?.url || ''}" alt="${a.name}" loading="lazy"/>
       <div class="artist-info">
         <div class="artist-name">${a.name}</div>
-        <div class="artist-meta">${a.genres.slice(0,2).join(', ') || 'sem gênero'}</div>
+        <div class="artist-meta">${(a.genres||[]).slice(0,2).join(', ') || 'sem gênero'}</div>
       </div>
       <div class="artist-pop">
         <div class="pop-bar-wrap"><div class="pop-bar" style="width:${a.popularity}%"></div></div>
@@ -766,7 +785,7 @@ function renderTracks(topTracks) {
 function renderGenres(topArtists) {
   if (!topArtists?.items) return;
   const freq = {};
-  topArtists.items.forEach(a => a.genres.forEach(g => freq[g] = (freq[g]||0)+1));
+  topArtists.items.forEach(a => (a.genres||[]).forEach(g => freq[g] = (freq[g]||0)+1));
   const sorted = Object.entries(freq).sort((a,b)=>b[1]-a[1]).slice(0, 30);
   const max = sorted[0]?.[1] || 1;
 
@@ -783,7 +802,7 @@ function renderListeningProfile(topArtists, topTracks) {
   if (!topArtists?.items) return;
   const items = topArtists.items;
   const avgPop = Math.round(items.reduce((s,a) => s+a.popularity, 0) / items.length);
-  const allGenres = items.flatMap(a => a.genres);
+  const allGenres = items.flatMap(a => a.genres||[]);
   const isMainstream = avgPop > 65;
   const diversity = Math.min(100, Math.round((new Set(allGenres).size / allGenres.length) * 400));
   const topFollowers = items.slice(0,5).reduce((s,a)=>s+(a.followers?.total||0),0)/5;
@@ -825,7 +844,7 @@ function renderCategories(topArtists) {
   CATEGORY_RULES.forEach(c => buckets[c.id] = []);
 
   items.forEach(artist => {
-    const genres = artist.genres.map(g => g.toLowerCase());
+    const genres = (artist.genres||[]).map(g => g.toLowerCase());
     let matched = false;
     for (const cat of CATEGORY_RULES) {
       if (genres.some(g => cat.match(g))) {
